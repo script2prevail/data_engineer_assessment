@@ -82,3 +82,127 @@ For MySQL Docker image reference:
 ## Solutions and Instructions (Filed by Candidate)
 
 **Document your solution here:**
+
+**SQL Script**
+CREATE TABLE property (
+    property_id VARCHAR(50) PRIMARY KEY,
+    MLSNumber VARCHAR(50),
+    YearBuilt INT,
+    LotSize FLOAT,
+    PropertyStatus VARCHAR(50)
+);
+
+CREATE TABLE valuation (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    property_id VARCHAR(50),
+    valuation_amount DECIMAL(15,2),
+    valuation_date DATE,
+    FOREIGN KEY (property_id) REFERENCES property(property_id)
+);
+
+CREATE TABLE hoa (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    property_id VARCHAR(50),
+    hoa_fee DECIMAL(10,2),
+    hoa_frequency VARCHAR(20),
+    FOREIGN KEY (property_id) REFERENCES property(property_id)
+);
+
+
+
+
+**Python Script for Extracting Data**
+import json
+import mysql.connector
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+# ----------------------------
+# Pydantic Models
+# ----------------------------
+
+class PropertyModel(BaseModel):
+    property_id: str
+    MLSNumber: Optional[str]
+    YearBuilt: Optional[int]
+    LotSize: Optional[float]
+    PropertyStatus: Optional[str]
+    valuation_amount: Optional[float]
+    valuation_date: Optional[str]
+    hoa_fee: Optional[float]
+    hoa_frequency: Optional[str]
+
+
+# ----------------------------
+# DB Connection
+# ----------------------------
+
+conn = mysql.connector.connect(
+    host="localhost",
+    user="db_user",
+    password="6equj5_db_user",
+    database="assessment"
+)
+cursor = conn.cursor()
+
+
+# ----------------------------
+# INSERT FUNCTIONS
+# ----------------------------
+
+def insert_property(p):
+    cursor.execute("""
+        INSERT INTO property (property_id, MLSNumber, YearBuilt, LotSize, PropertyStatus)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (p.property_id, p.MLSNumber, p.YearBuilt, p.LotSize, p.PropertyStatus))
+
+
+def insert_valuation(p):
+    if not p.valuation_amount:
+        return
+    date_val = None
+    if p.valuation_date:
+        date_val = datetime.strptime(p.valuation_date, "%Y-%m-%d").date()
+
+    cursor.execute("""
+        INSERT INTO valuation (property_id, valuation_amount, valuation_date)
+        VALUES (%s, %s, %s)
+    """, (p.property_id, p.valuation_amount, date_val))
+
+
+def insert_hoa(p):
+    if not p.hoa_fee:
+        return
+
+    cursor.execute("""
+        INSERT INTO hoa (property_id, hoa_fee, hoa_frequency)
+        VALUES (%s, %s, %s)
+    """, (p.property_id, p.hoa_fee, p.hoa_frequency))
+
+
+# ----------------------------
+# MAIN ETL LOGIC
+# ----------------------------
+
+def run_etl():
+
+    with open("data/raw.json") as f:
+        rows = json.load(f)
+
+    for raw in rows:
+
+        # Validate using Pydantic
+        cleaned = PropertyModel(**raw)
+
+        # Load into normalized tables
+        insert_property(cleaned)
+        insert_valuation(cleaned)
+        insert_hoa(cleaned)
+
+    conn.commit()
+    print("ETL Completed Successfully!")
+
+
+if __name__ == "__main__":
+    run_etl()
